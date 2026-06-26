@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+payapi.db
+*.db
+*.db-*
+server.log
+*.log
+/payapi-server
+/testpay
+/server
+bin/
+.idea/
+.DS_Store

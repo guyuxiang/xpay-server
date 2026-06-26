@@ -1,0 +1,104 @@
+package store
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/payapi/x402-server/internal/pricing"
+)
+
+func TestRecordEnforcesUniqueRequestID(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "payapi.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+
+	p := &Payment{
+		FromAddress:      "0x0000000000000000000000000000000000000001",
+		ToAddress:        "0x0000000000000000000000000000000000000002",
+		Amount:           1,
+		TxHash:           "0xabc",
+		Model:            "test-model",
+		PromptTokens:     1,
+		CompletionTokens: 1,
+		RequestID:        "req_test",
+		Network:          "eip155:84532",
+	}
+	if err := db.Record(p); err != nil {
+		t.Fatalf("Record() first error = %v", err)
+	}
+	p.TxHash = "0xdef"
+	if err := db.Record(p); err == nil {
+		t.Fatal("Record() duplicate error = nil")
+	}
+}
+
+func TestRecentByAddressDefaultLimit(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "payapi.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+
+	recent, err := db.RecentByAddress("0x0000000000000000000000000000000000000001", 0)
+	if err != nil {
+		t.Fatalf("RecentByAddress() error = %v", err)
+	}
+	if len(recent) != 0 {
+		t.Fatalf("RecentByAddress() len = %d, want 0", len(recent))
+	}
+}
+
+func TestSettingsRoundTrip(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "payapi.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if _, ok, err := db.GetSetting("markup"); err != nil || ok {
+		t.Fatalf("GetSetting() = ok %v err %v, want missing", ok, err)
+	}
+	if err := db.SetSetting("markup", "1.25"); err != nil {
+		t.Fatalf("SetSetting() error = %v", err)
+	}
+	value, ok, err := db.GetSetting("markup")
+	if err != nil {
+		t.Fatalf("GetSetting() error = %v", err)
+	}
+	if !ok || value != "1.25" {
+		t.Fatalf("GetSetting() = %q %v, want 1.25 true", value, ok)
+	}
+}
+
+func TestModelPricesRoundTrip(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "payapi.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+
+	defaults := pricing.DefaultEntries()
+	if err := db.BootstrapDefaultPrices(defaults); err != nil {
+		t.Fatalf("BootstrapDefaultPrices() error = %v", err)
+	}
+	if err := db.BootstrapDefaultPrices([]pricing.ModelPriceEntry{{Model: "ignored", Input: "1", Output: "1"}}); err != nil {
+		t.Fatalf("BootstrapDefaultPrices() second error = %v", err)
+	}
+	list, err := db.ListModelPrices()
+	if err != nil {
+		t.Fatalf("ListModelPrices() error = %v", err)
+	}
+	if len(list) != len(defaults) {
+		t.Fatalf("ListModelPrices() len = %d, want %d", len(list), len(defaults))
+	}
+
+	custom := pricing.ModelPriceEntry{Model: "custom", Input: "0.10", Output: "0.20"}
+	if err := db.UpsertModelPrice(custom); err != nil {
+		t.Fatalf("UpsertModelPrice() error = %v", err)
+	}
+	if err := db.DeleteModelPrice("custom"); err != nil {
+		t.Fatalf("DeleteModelPrice() error = %v", err)
+	}
+}

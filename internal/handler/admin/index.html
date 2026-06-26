@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PayAPI x402 Admin</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --panel-2: #f1f5f9;
+      --line: #d9e0e8;
+      --text: #16202a;
+      --muted: #64748b;
+      --accent: #0f766e;
+      --accent-2: #7c3aed;
+      --danger: #dc2626;
+      --warn: #b45309;
+      --ok: #15803d;
+      --shadow: 0 10px 28px rgba(15, 23, 42, .07);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    button, input { font: inherit; }
+    .layout { display: grid; min-height: 100vh; grid-template-columns: 232px minmax(0, 1fr); }
+    aside { border-right: 1px solid var(--line); background: #111827; color: #e5e7eb; padding: 18px 14px; position: sticky; top: 0; height: 100vh; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 8px 10px 18px; font-weight: 700; }
+    .mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #14b8a6, #8b5cf6); display: grid; place-items: center; color: white; font-size: 15px; }
+    nav { display: grid; gap: 4px; }
+    nav a { color: #cbd5e1; text-decoration: none; padding: 10px 12px; border-radius: 8px; display: flex; gap: 9px; align-items: center; font-size: 14px; }
+    nav a:hover, nav a.active { background: rgba(255,255,255,.09); color: white; }
+    main { min-width: 0; }
+    header { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.84); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 5; }
+    h1 { font-size: 18px; margin: 0; letter-spacing: 0; }
+    .header-meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 13px; }
+    .content { padding: 24px 28px 44px; display: grid; gap: 18px; }
+    section { scroll-margin-top: 82px; }
+    .grid { display: grid; gap: 14px; }
+    .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .stat { padding: 16px; min-height: 112px; display: grid; align-content: space-between; }
+    .stat .label { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; }
+    .stat .value { font-size: 26px; font-weight: 720; margin-top: 8px; }
+    .stat .sub { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .panel { padding: 18px; }
+    .panel-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 14px; }
+    .panel-title { font-size: 15px; font-weight: 700; margin: 0; }
+    .panel-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+    input { width: 100%; border: 1px solid var(--line); background: white; color: var(--text); border-radius: 8px; padding: 9px 10px; min-height: 38px; }
+    input:focus { outline: 2px solid rgba(20, 184, 166, .25); border-color: var(--accent); }
+    input[readonly] { background: var(--panel-2); color: #475569; }
+    .actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .btn { border: 1px solid var(--line); background: white; color: var(--text); border-radius: 8px; padding: 9px 12px; cursor: pointer; min-height: 38px; }
+    .btn:hover { border-color: #94a3b8; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn.danger { color: var(--danger); }
+    .btn.icon { width: 38px; padding: 0; display: grid; place-items: center; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; vertical-align: middle; }
+    th { background: #f8fafc; color: #475569; font-weight: 650; position: sticky; top: 0; }
+    tr:last-child td { border-bottom: 0; }
+    td input { min-height: 34px; padding: 7px 9px; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #f8fafc; color: #475569; padding: 4px 8px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+    .tag.ok { color: var(--ok); background: #ecfdf5; border-color: #bbf7d0; }
+    .tag.warn { color: var(--warn); background: #fffbeb; border-color: #fde68a; }
+    .toast { position: fixed; right: 18px; bottom: 18px; background: #111827; color: white; border-radius: 8px; padding: 11px 13px; box-shadow: var(--shadow); display: none; z-index: 20; font-size: 13px; max-width: 360px; }
+    .empty { color: var(--muted); padding: 18px; text-align: center; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stats, .row, .fields { grid-template-columns: 1fr; }
+      header { padding: 0 18px; }
+      .content { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand"><div class="mark">₮</div><div>PayAPI x402</div></div>
+      <nav>
+        <a href="#overview" class="active">⌁ 概览</a>
+        <a href="#settings">⚙ 配置</a>
+        <a href="#prices">⌘ 价格</a>
+        <a href="#payments">≡ 支付</a>
+      </nav>
+    </aside>
+    <main>
+      <header>
+        <h1>运营控制台</h1>
+        <div class="header-meta">
+          <span id="network" class="tag">network</span>
+          <button class="btn" id="refreshBtn">刷新</button>
+        </div>
+      </header>
+      <div class="content">
+        <section id="overview" class="grid stats">
+          <div class="card stat"><div class="label">总收入 <span>USDC</span></div><div class="value" id="totalSpent">$0.000000</div><div class="sub" id="paymentCount">0 笔支付</div></div>
+          <div class="card stat"><div class="label">付款地址 <span>unique</span></div><div class="value" id="uniquePayers">0</div><div class="sub">已完成结算的钱包数</div></div>
+          <div class="card stat"><div class="label">输入 Token <span>prompt</span></div><div class="value" id="promptTokens">0</div><div class="sub">按已支付请求累计</div></div>
+          <div class="card stat"><div class="label">输出 Token <span>completion</span></div><div class="value" id="completionTokens">0</div><div class="sub">按已支付请求累计</div></div>
+        </section>
+
+        <section id="settings" class="card panel">
+          <div class="panel-head">
+            <div><h2 class="panel-title">运行配置</h2><div class="panel-sub">敏感字段不在页面展示，价格和加价保存后立即生效。</div></div>
+            <div class="actions"><button class="btn primary" id="saveSettingsBtn">保存配置</button></div>
+          </div>
+          <div class="fields">
+            <label>加价倍率 <input id="markupInput" inputmode="decimal" placeholder="1.0"></label>
+            <label>收款地址 <input id="payToInput" readonly></label>
+            <label>USDC 合约 <input id="assetInput" readonly></label>
+            <label>上游地址 <input id="upstreamInput" readonly></label>
+            <label>签名有效期 <input id="sigTimeoutInput" readonly></label>
+            <label>请求体上限 <input id="maxBodyInput" readonly></label>
+          </div>
+        </section>
+
+        <section id="prices" class="card panel">
+          <div class="panel-head">
+            <div><h2 class="panel-title">模型价格</h2><div class="panel-sub">单位为 USD / 1M tokens，模型名支持最长前缀匹配。</div></div>
+            <div class="actions">
+              <button class="btn" id="resetPricesBtn">恢复默认</button>
+              <button class="btn primary" id="addPriceBtn">新增模型</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>模型</th><th>输入价格</th><th>输出价格</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody id="pricesBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="payments" class="card panel">
+          <div class="panel-head">
+            <div><h2 class="panel-title">最近支付</h2><div class="panel-sub">展示最近 20 笔已结算请求。</div></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>时间</th><th>付款方</th><th>模型</th><th>金额</th><th>Tx</th></tr></thead>
+              <tbody id="paymentsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    const state = { data: null, token: localStorage.getItem('adminToken') || '' }
+    const $ = (id) => document.getElementById(id)
+    const headers = () => state.token ? { 'X-Admin-Token': state.token } : {}
+
+    function toast(message) {
+      const el = $('toast')
+      el.textContent = message
+      el.style.display = 'block'
+      clearTimeout(window.__toastTimer)
+      window.__toastTimer = setTimeout(() => el.style.display = 'none', 2600)
+    }
+    function fmtUSD(units) { return '$' + (Number(units || 0) / 1_000_000).toFixed(6) }
+    function fmtNum(n) { return Number(n || 0).toLocaleString() }
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+    }
+    async function request(path, options = {}) {
+      const res = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } })
+      if (res.status === 401) {
+        const token = prompt('Admin Token')
+        if (token) {
+          state.token = token
+          localStorage.setItem('adminToken', token)
+          return request(path, options)
+        }
+      }
+      if (!res.ok) {
+        let msg = res.statusText
+        try { msg = (await res.json()).error || msg } catch (_) {}
+        throw new Error(msg)
+      }
+      return res.json()
+    }
+    async function load() {
+      state.data = await request('/admin/api/overview')
+      render()
+    }
+    function render() {
+      const { summary, recent, prices, config } = state.data
+      $('network').textContent = config.network + (config.dryRun ? ' · dry-run' : '')
+      $('totalSpent').textContent = fmtUSD(summary.totalAmount)
+      $('paymentCount').textContent = `${fmtNum(summary.paymentCount)} 笔支付`
+      $('uniquePayers').textContent = fmtNum(summary.uniquePayers)
+      $('promptTokens').textContent = fmtNum(summary.promptTokens)
+      $('completionTokens').textContent = fmtNum(summary.completionTokens)
+      $('markupInput').value = config.markup
+      $('payToInput').value = config.payTo
+      $('assetInput').value = config.asset
+      $('upstreamInput').value = config.upstream
+      $('sigTimeoutInput').value = config.sigTimeoutSecs + 's'
+      $('maxBodyInput').value = fmtNum(config.maxBodyBytes) + ' bytes'
+      renderPrices(prices)
+      renderPayments(recent)
+    }
+    function renderPrices(prices) {
+      $('pricesBody').innerHTML = prices.map(p => `
+        <tr data-model="${escapeHtml(p.model)}">
+          <td><input class="model" value="${escapeHtml(p.model)}"></td>
+          <td><input class="input" inputmode="decimal" value="${escapeHtml(p.input)}"></td>
+          <td><input class="output" inputmode="decimal" value="${escapeHtml(p.output)}"></td>
+          <td>${p.isDefault ? '<span class="tag ok">默认</span>' : '<span class="tag warn">自定义</span>'}</td>
+          <td>
+            <button class="btn primary save-price">保存</button>
+            <button class="btn danger delete-price">删除</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="5" class="empty">暂无模型价格</td></tr>'
+    }
+    function renderPayments(rows) {
+      $('paymentsBody').innerHTML = rows.map(p => `
+        <tr>
+          <td class="mono">${escapeHtml(p.created_at || '')}</td>
+          <td class="mono truncate">${escapeHtml(p.from_address)}</td>
+          <td>${escapeHtml(p.model)}</td>
+          <td>${fmtUSD(p.amount)}</td>
+          <td class="mono truncate">${escapeHtml(p.tx_hash)}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="5" class="empty">暂无支付记录</td></tr>'
+    }
+    async function savePrice(row) {
+      const payload = {
+        model: row.querySelector('.model').value.trim(),
+        input: row.querySelector('.input').value.trim(),
+        output: row.querySelector('.output').value.trim()
+      }
+      await request('/admin/api/prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      toast('价格已保存')
+      await load()
+    }
+    document.addEventListener('click', async (event) => {
+      const target = event.target
+      try {
+        if (target.id === 'refreshBtn') await load()
+        if (target.id === 'saveSettingsBtn') {
+          await request('/admin/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ markup: Number($('markupInput').value) })
+          })
+          toast('配置已保存')
+          await load()
+        }
+        if (target.id === 'addPriceBtn') {
+          const tbody = $('pricesBody')
+          tbody.insertAdjacentHTML('afterbegin', `<tr data-model="">
+            <td><input class="model" placeholder="model-id"></td>
+            <td><input class="input" inputmode="decimal" placeholder="0.00"></td>
+            <td><input class="output" inputmode="decimal" placeholder="0.00"></td>
+            <td><span class="tag warn">新增</span></td>
+            <td><button class="btn primary save-price">保存</button><button class="btn danger delete-price">删除</button></td>
+          </tr>`)
+        }
+        if (target.classList.contains('save-price')) await savePrice(target.closest('tr'))
+        if (target.classList.contains('delete-price')) {
+          const row = target.closest('tr')
+          const model = row.dataset.model || row.querySelector('.model').value.trim()
+          if (!model) { row.remove(); return }
+          if (!confirm(`删除 ${model} ?`)) return
+          await request('/admin/api/prices/' + encodeURIComponent(model), { method: 'DELETE' })
+          toast('价格已删除')
+          await load()
+        }
+        if (target.id === 'resetPricesBtn') {
+          if (!confirm('恢复默认价格会覆盖当前模型价格。')) return
+          await request('/admin/api/prices/reset-defaults', { method: 'POST' })
+          toast('默认价格已恢复')
+          await load()
+        }
+      } catch (err) {
+        toast(err.message || String(err))
+      }
+    })
+    load().catch(err => toast(err.message || String(err)))
+  </script>
+</body>
+</html>

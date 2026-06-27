@@ -52,6 +52,47 @@ func TestCostMicroUSDCFallbackDefault(t *testing.T) {
 	}
 }
 
+func TestCostMicroUSDCCachedInputUsesCachedPrice(t *testing.T) {
+	table, err := NewTable(
+		ModelPrice{InputPerM: "5", OutputPerM: "15"},
+		map[string]ModelPrice{
+			"cached-model": {InputPerM: "1.00", CachedInputPerM: "0.10", OutputPerM: "2.00"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewTable() error = %v", err)
+	}
+
+	got := table.CostMicroUSDC("cached-model", Usage{
+		PromptTokens:     1_000_000,
+		CachedTokens:     250_000,
+		CompletionTokens: 100_000,
+	}, 1)
+	if got.Cmp(big.NewInt(975_000)) != 0 {
+		t.Fatalf("CostMicroUSDC() = %s, want 975000", got)
+	}
+}
+
+func TestCostMicroUSDCCachedInputDefaultsToInputPrice(t *testing.T) {
+	table, err := NewTable(
+		ModelPrice{InputPerM: "5", OutputPerM: "15"},
+		map[string]ModelPrice{
+			"cached-model": {InputPerM: "1.00", OutputPerM: "2.00"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewTable() error = %v", err)
+	}
+
+	got := table.CostMicroUSDC("cached-model", Usage{
+		PromptTokens: 1_000_000,
+		CachedTokens: 1_000_000,
+	}, 1)
+	if got.Cmp(big.NewInt(1_000_000)) != 0 {
+		t.Fatalf("CostMicroUSDC() = %s, want 1000000", got)
+	}
+}
+
 func TestCostMicroUSDCMarkupRoundsUp(t *testing.T) {
 	table, err := NewTable(ModelPrice{InputPerM: "1", OutputPerM: "1"}, nil)
 	if err != nil {

@@ -13,16 +13,19 @@ const microsPerUSD = int64(1_000_000)
 
 // ModelPrice is the per-1M-token price in USD.
 type ModelPrice struct {
-	InputPerM  string `json:"input"`
-	OutputPerM string `json:"output"`
+	InputPerM       string `json:"input"`
+	OutputPerM      string `json:"output"`
+	CachedInputPerM string `json:"cached_input,omitempty"`
 }
 
 func (p *ModelPrice) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		Input      json.RawMessage `json:"input"`
 		Output     json.RawMessage `json:"output"`
+		Cached     json.RawMessage `json:"cached_input"`
 		InputPerM  json.RawMessage `json:"input_per_m"`
 		OutputPerM json.RawMessage `json:"output_per_m"`
+		CachedPerM json.RawMessage `json:"cached_input_per_m"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -35,6 +38,10 @@ func (p *ModelPrice) UnmarshalJSON(data []byte) error {
 	if len(output) == 0 {
 		output = raw.OutputPerM
 	}
+	cached := raw.Cached
+	if len(cached) == 0 {
+		cached = raw.CachedPerM
+	}
 	var err error
 	p.InputPerM, err = decodePriceValue(input)
 	if err != nil {
@@ -44,25 +51,32 @@ func (p *ModelPrice) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("output: %w", err)
 	}
+	p.CachedInputPerM, err = decodePriceValue(cached)
+	if err != nil {
+		return fmt.Errorf("cached_input: %w", err)
+	}
 	return nil
 }
 
 type compiledPrice struct {
-	InputMicrosPerM  int64
-	OutputMicrosPerM int64
+	InputMicrosPerM       int64
+	OutputMicrosPerM      int64
+	CachedInputMicrosPerM int64
 }
 
 type ModelPriceEntry struct {
-	Model     string `json:"model"`
-	Input     string `json:"input"`
-	Output    string `json:"output"`
-	IsDefault bool   `json:"isDefault,omitempty"`
+	Model       string `json:"model"`
+	Input       string `json:"input"`
+	Output      string `json:"output"`
+	CachedInput string `json:"cached_input,omitempty"`
+	IsDefault   bool   `json:"isDefault,omitempty"`
 }
 
 // Usage is the token accounting extracted from an LLM response.
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
+	CachedTokens     int
 }
 
 // Table resolves model ids to per-token prices. Exact matches win; otherwise
@@ -92,6 +106,8 @@ func DefaultPrices() map[string]ModelPrice {
 		"gpt-5":             {InputPerM: "1.25", OutputPerM: "10.00"},
 		"gpt-5-mini":        {InputPerM: "0.25", OutputPerM: "2.00"},
 		"gpt-5-nano":        {InputPerM: "0.05", OutputPerM: "0.40"},
+		"gpt-5.5":           {InputPerM: "5.00", CachedInputPerM: "0.50", OutputPerM: "30.00"},
+		"gpt-5.5-pro":       {InputPerM: "30.00", OutputPerM: "180.00"},
 		"claude-opus-4":     {InputPerM: "15.00", OutputPerM: "75.00"},
 		"claude-sonnet-4":   {InputPerM: "3.00", OutputPerM: "15.00"},
 		"claude-haiku-4.5":  {InputPerM: "1.00", OutputPerM: "5.00"},
@@ -137,7 +153,11 @@ func NewTable(defaultPrice ModelPrice, models map[string]ModelPrice) (*Table, er
 func NewTableFromEntries(defaultPrice ModelPrice, entries []ModelPriceEntry) (*Table, error) {
 	models := make(map[string]ModelPrice, len(entries))
 	for _, entry := range entries {
-		models[entry.Model] = ModelPrice{InputPerM: entry.Input, OutputPerM: entry.Output}
+		models[entry.Model] = ModelPrice{
+			InputPerM:       entry.Input,
+			OutputPerM:      entry.Output,
+			CachedInputPerM: entry.CachedInput,
+		}
 	}
 	return NewTable(defaultPrice, models)
 }
@@ -147,10 +167,11 @@ func DefaultEntries() []ModelPriceEntry {
 	out := make([]ModelPriceEntry, 0, len(defaults))
 	for model, price := range defaults {
 		out = append(out, ModelPriceEntry{
-			Model:     model,
-			Input:     price.InputPerM,
-			Output:    price.OutputPerM,
-			IsDefault: true,
+			Model:       model,
+			Input:       price.InputPerM,
+			Output:      price.OutputPerM,
+			CachedInput: price.CachedInputPerM,
+			IsDefault:   true,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
@@ -166,7 +187,14 @@ func compilePrice(p ModelPrice) (compiledPrice, error) {
 	if err != nil {
 		return compiledPrice{}, fmt.Errorf("output: %w", err)
 	}
-	return compiledPrice{InputMicrosPerM: input, OutputMicrosPerM: output}, nil
+	cachedInput := input
+	if strings.TrimSpace(p.CachedInputPerM) != "" {
+		cachedInput, err = parseUSDToMicros(p.CachedInputPerM)
+		if err != nil {
+			return compiledPrice{}, fmt.Errorf("cached_input: %w", err)
+		}
+	}
+	return compiledPrice{InputMicrosPerM: input, OutputMicrosPerM: output, CachedInputMicrosPerM: cachedInput}, nil
 }
 
 func parseUSDToMicros(s string) (int64, error) {
@@ -221,9 +249,14 @@ func (t *Table) priceFor(model string) compiledPrice {
 // CostMicroUSDC returns the price in USDC base units (6 decimals), rounded up.
 func (t *Table) CostMicroUSDC(model string, u Usage, markup float64) *big.Int {
 	p := t.priceFor(model)
-	input := new(big.Int).Mul(big.NewInt(int64(max(u.PromptTokens, 0))), big.NewInt(p.InputMicrosPerM))
+	promptTokens := max(u.PromptTokens, 0)
+	cachedTokens := min(max(u.CachedTokens, 0), promptTokens)
+	uncachedTokens := promptTokens - cachedTokens
+	input := new(big.Int).Mul(big.NewInt(int64(uncachedTokens)), big.NewInt(p.InputMicrosPerM))
+	cachedInput := new(big.Int).Mul(big.NewInt(int64(cachedTokens)), big.NewInt(p.CachedInputMicrosPerM))
 	output := new(big.Int).Mul(big.NewInt(int64(max(u.CompletionTokens, 0))), big.NewInt(p.OutputMicrosPerM))
-	total := new(big.Int).Add(input, output)
+	total := new(big.Int).Add(input, cachedInput)
+	total.Add(total, output)
 	total.Add(total, big.NewInt(999_999))
 	total.Div(total, big.NewInt(1_000_000))
 	if markup > 0 && markup != 1 {
@@ -289,6 +322,13 @@ func normalizeModel(model string) string {
 
 func max(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

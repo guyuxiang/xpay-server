@@ -3,6 +3,7 @@
 package types
 
 import (
+	"encoding/json"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -53,10 +54,17 @@ type AuthorizationPayload struct {
 	Nonce       string `json:"nonce"` // 0x + 64 hex chars
 }
 
-// ExactEvmPayload is the inner payload for the exact/EVM scheme.
+// ExactEVMPayload is the inner payload for the exact/EVM scheme.
 type ExactEvmPayload struct {
 	Signature     string               `json:"signature"` // 0x + 130 hex chars
 	Authorization AuthorizationPayload `json:"authorization"`
+}
+
+// ExactSolanaPayload is the inner payload for the exact/Solana scheme.
+type ExactSolanaPayload struct {
+	Type        string `json:"type"`
+	Transaction string `json:"transaction"` // base64-encoded signed Solana transaction
+	RequestID   string `json:"requestId"`
 }
 
 // PaymentPayload is the base64-decoded content of the X-PAYMENT request header.
@@ -64,7 +72,7 @@ type PaymentPayload struct {
 	X402Version int             `json:"x402Version"`
 	Scheme      string          `json:"scheme"`
 	Network     string          `json:"network"`
-	Payload     ExactEvmPayload `json:"payload"`
+	Payload     json.RawMessage `json:"payload"`
 }
 
 // SettlementResponse is the base64-encoded content of X-PAYMENT-RESPONSE header.
@@ -78,6 +86,7 @@ type SettlementResponse struct {
 const (
 	X402Version    = 1
 	SchemeExact    = "exact"
+	SolanaPayType  = "signed_transaction"
 	HeaderPayment  = "X-PAYMENT"
 	HeaderRequest  = "X-PAYMENT-REQUEST-ID"
 	HeaderResponse = "X-PAYMENT-RESPONSE"

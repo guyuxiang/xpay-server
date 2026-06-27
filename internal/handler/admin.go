@@ -56,6 +56,7 @@ func (h *Admin) Overview(c *gin.Context) {
 		"recent":  recent,
 		"prices":  models,
 		"config": gin.H{
+			"paymentChain":     h.cfg.PaymentChain,
 			"network":          h.cfg.Network,
 			"chainId":          h.cfg.ChainID,
 			"payTo":            h.cfg.PayToAddress,

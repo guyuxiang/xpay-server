@@ -71,3 +71,27 @@ func TestLoadRejectsInfiniteMarkup(t *testing.T) {
 		t.Fatal("Load() error = nil, want finite markup error")
 	}
 }
+
+func TestLoadValidSolanaConfig(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("PAYMENT_CHAIN", "solana")
+	t.Setenv("PAY_TO_ADDRESS", "11111111111111111111111111111111")
+	t.Setenv("USDC_ADDRESS", "So11111111111111111111111111111111111111112")
+	t.Setenv("SOLANA_CLUSTER", "devnet")
+	t.Setenv("SOLANA_CONFIRMATION", "finalized")
+	t.Setenv("GAS_PRIVATE_KEY", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PaymentChain != "solana" {
+		t.Fatalf("PaymentChain = %q", cfg.PaymentChain)
+	}
+	if cfg.Network != "solana:devnet" {
+		t.Fatalf("Network = %q", cfg.Network)
+	}
+	if cfg.RPCURL != "https://api.devnet.solana.com" {
+		t.Fatalf("RPCURL = %q", cfg.RPCURL)
+	}
+}

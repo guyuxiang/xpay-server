@@ -8,12 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/big"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/gin-gonic/gin"
 	"github.com/payapi/x402-server/internal/cache"
 	"github.com/payapi/x402-server/internal/config"
@@ -27,14 +24,14 @@ import (
 type Relay struct {
 	cfg     *config.Config
 	cache   *cache.Cache
-	settler *settler.Settler
+	settler settler.PaymentSettler
 	db      *store.DB
 	client  *http.Client
 	prices  *pricing.Manager
 }
 
 // NewRelay constructs a Relay with all dependencies wired.
-func NewRelay(cfg *config.Config, c *cache.Cache, s *settler.Settler, db *store.DB, prices *pricing.Manager) *Relay {
+func NewRelay(cfg *config.Config, c *cache.Cache, s settler.PaymentSettler, db *store.DB, prices *pricing.Manager) *Relay {
 	return &Relay{
 		cfg:     cfg,
 		cache:   c,
@@ -100,16 +97,30 @@ func (h *Relay) handleInitial(c *gin.Context, body []byte) {
 			CompletionTokens int `json:"completion_tokens"`
 			InputTokens      int `json:"input_tokens"`
 			OutputTokens     int `json:"output_tokens"`
+			CacheReadTokens  int `json:"cache_read_input_tokens"`
+			PromptDetails    struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+			InputDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 	}
 	_ = json.Unmarshal(respBody, &env)
 	u := pricing.Usage{
 		PromptTokens:     env.Usage.PromptTokens,
 		CompletionTokens: env.Usage.CompletionTokens,
+		CachedTokens:     env.Usage.PromptDetails.CachedTokens,
 	}
 	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
 		u.PromptTokens = env.Usage.InputTokens
 		u.CompletionTokens = env.Usage.OutputTokens
+	}
+	if u.CachedTokens == 0 {
+		u.CachedTokens = env.Usage.InputDetails.CachedTokens
+	}
+	if u.CachedTokens == 0 {
+		u.CachedTokens = env.Usage.CacheReadTokens
 	}
 	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
 		c.JSON(http.StatusBadGateway, gin.H{
@@ -140,21 +151,15 @@ func (h *Relay) handleInitial(c *gin.Context, body []byte) {
 
 	challenge := types.PaymentRequiredResponse{
 		X402Version: types.X402Version,
-		Accepts: []types.PaymentRequirements{{
-			Scheme:            types.SchemeExact,
-			Network:           h.cfg.Network,
-			MaxAmountRequired: cost.String(),
-			Resource:          c.Request.URL.Path,
-			Description:       fmt.Sprintf("%s: %d prompt + %d completion tokens", model, u.PromptTokens, u.CompletionTokens),
-			PayTo:             h.cfg.PayToAddress,
-			MaxTimeoutSeconds: h.cfg.SigTimeoutSecs,
-			Asset:             h.cfg.USDCAddress,
-			Extra: map[string]string{
-				"requestId": reqID,
-				"name":      h.cfg.USDCName,
-				"version":   h.cfg.USDCVersion,
-			},
-		}},
+		Accepts: []types.PaymentRequirements{
+			h.settler.BuildRequirements(
+				c.Request.URL.Path,
+				fmt.Sprintf("%s: %d prompt + %d completion tokens", model, u.PromptTokens, u.CompletionTokens),
+				reqID,
+				cost,
+				h.cfg.SigTimeoutSecs,
+			),
+		},
 	}
 	c.Header(types.HeaderRequest, reqID)
 	c.Header(types.HeaderCost, pricing.USDCUnitsToUSD(cost))
@@ -188,55 +193,19 @@ func (h *Relay) handlePayment(c *gin.Context, _ []byte) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "network mismatch"})
 		return
 	}
-	auth, err := settler.DecodeAuthorization(payment.Payload.Authorization)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad authorization: " + err.Error()})
-		return
-	}
-	if auth.Value.Cmp(cached.Cost) != 0 {
-		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error": fmt.Sprintf("amount mismatch: signed %s, expected %s", auth.Value, cached.Cost),
-		})
-		return
-	}
-	if !strings.EqualFold(auth.To.Hex(), h.cfg.PayToAddress) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "payTo mismatch"})
-		return
-	}
-	now := big.NewInt(time.Now().Unix())
-	if auth.ValidAfter.Cmp(now) > 0 {
-		c.JSON(http.StatusPaymentRequired, gin.H{"error": "authorization not yet valid"})
-		return
-	}
-	if auth.ValidBefore.Cmp(now) <= 0 {
-		c.JSON(http.StatusPaymentRequired, gin.H{"error": "authorization expired"})
-		return
-	}
-
-	sig, err := hexutil.Decode(payment.Payload.Signature)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad signature encoding"})
-		return
-	}
-	signer, err := settler.VerifyEIP712(auth, sig, h.cfg)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "signature verification failed: " + err.Error()})
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
 	defer cancel()
-	txHash, err := h.settler.Settle(ctx, auth, sig)
+	settlement, err := h.settler.Settle(ctx, payment, cached.Cost, reqID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "settlement failed: " + err.Error()})
 		return
 	}
 
 	if err := h.db.Record(&store.Payment{
-		FromAddress:      signer.Hex(),
-		ToAddress:        auth.To.Hex(),
+		FromAddress:      settlement.Payer,
+		ToAddress:        h.cfg.PayToAddress,
 		Amount:           cached.Cost.Int64(),
-		TxHash:           txHash,
+		TxHash:           settlement.TxHash,
 		Model:            cached.Model,
 		PromptTokens:     cached.Usage.PromptTokens,
 		CompletionTokens: cached.Usage.CompletionTokens,
@@ -247,13 +216,13 @@ func (h *Relay) handlePayment(c *gin.Context, _ []byte) {
 	}
 
 	settlementJSON, _ := json.Marshal(types.SettlementResponse{
-		Success: true, Transaction: txHash, Network: h.cfg.Network, Payer: signer.Hex(),
+		Success: true, Transaction: settlement.TxHash, Network: h.cfg.Network, Payer: settlement.Payer,
 	})
 	h.cache.Delete(reqID)
 
 	c.Header(types.HeaderResponse, base64.StdEncoding.EncodeToString(settlementJSON))
 	c.Header(types.HeaderCost, pricing.USDCUnitsToUSD(cached.Cost))
-	c.Header(types.HeaderTx, txHash)
+	c.Header(types.HeaderTx, settlement.TxHash)
 	c.Data(cached.Status, cached.ContentType, cached.Body)
 }
 

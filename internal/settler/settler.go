@@ -4,6 +4,7 @@ package settler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -39,8 +40,18 @@ const transferWithAuthorizationABI = `[{
   "type":"function"
 }]`
 
-// Settler submits EIP-3009 authorizations on-chain.
-type Settler struct {
+type Settlement struct {
+	TxHash string
+	Payer  string
+}
+
+type PaymentSettler interface {
+	BuildRequirements(resource, description, reqID string, cost *big.Int, maxTimeoutSeconds int) types.PaymentRequirements
+	Settle(ctx context.Context, payment types.PaymentPayload, cost *big.Int, reqID string) (Settlement, error)
+}
+
+// EVMSettler submits EIP-3009 authorizations on-chain.
+type EVMSettler struct {
 	cfg      *config.Config
 	client   *ethclient.Client
 	contract *bind.BoundContract
@@ -49,9 +60,12 @@ type Settler struct {
 
 // New dials the RPC and prepares the gas-wallet transactor.
 // In dry-run mode it skips RPC setup; Settle returns a synthetic hash.
-func New(c *config.Config) (*Settler, error) {
+func New(c *config.Config) (PaymentSettler, error) {
+	if c.PaymentChain == "solana" {
+		return NewSolana(c)
+	}
 	if c.DryRun {
-		s := &Settler{cfg: c}
+		s := &EVMSettler{cfg: c}
 		if c.GasPrivKeyHex != "" {
 			if key, err := crypto.HexToECDSA(strings.TrimPrefix(c.GasPrivKeyHex, "0x")); err == nil {
 				s.opts = &bind.TransactOpts{From: crypto.PubkeyToAddress(key.PublicKey)}
@@ -77,11 +91,66 @@ func New(c *config.Config) (*Settler, error) {
 	}
 	usdc := common.HexToAddress(c.USDCAddress)
 	contract := bind.NewBoundContract(usdc, parsed, client, client, client)
-	return &Settler{cfg: c, client: client, contract: contract, opts: opts}, nil
+	return &EVMSettler{cfg: c, client: client, contract: contract, opts: opts}, nil
 }
 
-// Settle submits transferWithAuthorization and returns the transaction hash.
-func (s *Settler) Settle(ctx context.Context, auth types.TransferAuthorization, signature []byte) (string, error) {
+func (s *EVMSettler) BuildRequirements(resource, description, reqID string, cost *big.Int, maxTimeoutSeconds int) types.PaymentRequirements {
+	return types.PaymentRequirements{
+		Scheme:            types.SchemeExact,
+		Network:           s.cfg.Network,
+		MaxAmountRequired: cost.String(),
+		Resource:          resource,
+		Description:       description,
+		PayTo:             s.cfg.PayToAddress,
+		MaxTimeoutSeconds: maxTimeoutSeconds,
+		Asset:             s.cfg.USDCAddress,
+		Extra: map[string]string{
+			"requestId": reqID,
+			"name":      s.cfg.USDCName,
+			"version":   s.cfg.USDCVersion,
+		},
+	}
+}
+
+func (s *EVMSettler) Settle(ctx context.Context, payment types.PaymentPayload, cost *big.Int, _ string) (Settlement, error) {
+	var payload types.ExactEvmPayload
+	if err := json.Unmarshal(payment.Payload, &payload); err != nil {
+		return Settlement{}, fmt.Errorf("bad EVM payload: %w", err)
+	}
+	auth, err := DecodeAuthorization(payload.Authorization)
+	if err != nil {
+		return Settlement{}, fmt.Errorf("bad authorization: %w", err)
+	}
+	if auth.Value.Cmp(cost) != 0 {
+		return Settlement{}, fmt.Errorf("amount mismatch: signed %s, expected %s", auth.Value, cost)
+	}
+	if !strings.EqualFold(auth.To.Hex(), s.cfg.PayToAddress) {
+		return Settlement{}, fmt.Errorf("payTo mismatch")
+	}
+	now := big.NewInt(time.Now().Unix())
+	if auth.ValidAfter.Cmp(now) > 0 {
+		return Settlement{}, fmt.Errorf("authorization not yet valid")
+	}
+	if auth.ValidBefore.Cmp(now) <= 0 {
+		return Settlement{}, fmt.Errorf("authorization expired")
+	}
+	sig, err := hexutil.Decode(payload.Signature)
+	if err != nil {
+		return Settlement{}, fmt.Errorf("bad signature encoding")
+	}
+	signer, err := VerifyEIP712(auth, sig, s.cfg)
+	if err != nil {
+		return Settlement{}, fmt.Errorf("signature verification failed: %w", err)
+	}
+	txHash, err := s.submit(ctx, auth, sig)
+	if err != nil {
+		return Settlement{}, err
+	}
+	return Settlement{TxHash: txHash, Payer: signer.Hex()}, nil
+}
+
+// submit submits transferWithAuthorization and returns the transaction hash.
+func (s *EVMSettler) submit(ctx context.Context, auth types.TransferAuthorization, signature []byte) (string, error) {
 	r, ss, v, err := splitSignature(signature)
 	if err != nil {
 		return "", err
@@ -102,7 +171,7 @@ func (s *Settler) Settle(ctx context.Context, auth types.TransferAuthorization, 
 }
 
 // GasWalletAddress returns the address that pays gas.
-func (s *Settler) GasWalletAddress() common.Address {
+func (s *EVMSettler) GasWalletAddress() common.Address {
 	if s.opts == nil {
 		return common.Address{}
 	}

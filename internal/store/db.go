@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "github.com/glebarez/sqlite"
 )
@@ -55,12 +56,17 @@ func migrate(db *sql.DB) error {
 			model      TEXT PRIMARY KEY,
 			input      TEXT NOT NULL,
 			output     TEXT NOT NULL,
+			cached_input TEXT NOT NULL DEFAULT '',
 			is_default INTEGER NOT NULL DEFAULT 0,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`ALTER TABLE model_prices ADD COLUMN cached_input TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.Exec(stmt); err != nil {
+			if stmt == `ALTER TABLE model_prices ADD COLUMN cached_input TEXT NOT NULL DEFAULT ''` && strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return err
 		}
 	}

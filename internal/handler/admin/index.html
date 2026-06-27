@@ -126,7 +126,7 @@
 
         <section id="prices" class="card panel">
           <div class="panel-head">
-            <div><h2 class="panel-title">模型价格</h2><div class="panel-sub">单位为 USD / 1M tokens，模型名支持最长前缀匹配。</div></div>
+            <div><h2 class="panel-title">模型价格</h2><div class="panel-sub">单位为 USD / 1M tokens，缓存输入为空时按普通输入价格计费。</div></div>
             <div class="actions">
               <button class="btn" id="resetPricesBtn">恢复默认</button>
               <button class="btn primary" id="addPriceBtn">新增模型</button>
@@ -134,7 +134,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>模型</th><th>输入价格</th><th>输出价格</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>模型</th><th>输入价格</th><th>缓存输入</th><th>输出价格</th><th>状态</th><th>操作</th></tr></thead>
               <tbody id="pricesBody"></tbody>
             </table>
           </div>
@@ -215,6 +215,7 @@
         <tr data-model="${escapeHtml(p.model)}">
           <td><input class="model" value="${escapeHtml(p.model)}"></td>
           <td><input class="input" inputmode="decimal" value="${escapeHtml(p.input)}"></td>
+          <td><input class="cached-input" inputmode="decimal" value="${escapeHtml(p.cached_input || '')}" placeholder="同输入"></td>
           <td><input class="output" inputmode="decimal" value="${escapeHtml(p.output)}"></td>
           <td>${p.isDefault ? '<span class="tag ok">默认</span>' : '<span class="tag warn">自定义</span>'}</td>
           <td>
@@ -222,7 +223,7 @@
             <button class="btn danger delete-price">删除</button>
           </td>
         </tr>
-      `).join('') || '<tr><td colspan="5" class="empty">暂无模型价格</td></tr>'
+      `).join('') || '<tr><td colspan="6" class="empty">暂无模型价格</td></tr>'
     }
     function renderPayments(rows) {
       $('paymentsBody').innerHTML = rows.map(p => `
@@ -239,6 +240,7 @@
       const payload = {
         model: row.querySelector('.model').value.trim(),
         input: row.querySelector('.input').value.trim(),
+        cached_input: row.querySelector('.cached-input').value.trim(),
         output: row.querySelector('.output').value.trim()
       }
       await request('/admin/api/prices', {
@@ -267,6 +269,7 @@
           tbody.insertAdjacentHTML('afterbegin', `<tr data-model="">
             <td><input class="model" placeholder="model-id"></td>
             <td><input class="input" inputmode="decimal" placeholder="0.00"></td>
+            <td><input class="cached-input" inputmode="decimal" placeholder="同输入"></td>
             <td><input class="output" inputmode="decimal" placeholder="0.00"></td>
             <td><span class="tag warn">新增</span></td>
             <td><button class="btn primary save-price">保存</button><button class="btn danger delete-price">删除</button></td>

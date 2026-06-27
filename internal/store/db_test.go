@@ -83,20 +83,36 @@ func TestModelPricesRoundTrip(t *testing.T) {
 	if err := db.BootstrapDefaultPrices(defaults); err != nil {
 		t.Fatalf("BootstrapDefaultPrices() error = %v", err)
 	}
-	if err := db.BootstrapDefaultPrices([]pricing.ModelPriceEntry{{Model: "ignored", Input: "1", Output: "1"}}); err != nil {
+	if err := db.BootstrapDefaultPrices([]pricing.ModelPriceEntry{{Model: "new-default", Input: "1", Output: "1"}}); err != nil {
 		t.Fatalf("BootstrapDefaultPrices() second error = %v", err)
 	}
 	list, err := db.ListModelPrices()
 	if err != nil {
 		t.Fatalf("ListModelPrices() error = %v", err)
 	}
-	if len(list) != len(defaults) {
-		t.Fatalf("ListModelPrices() len = %d, want %d", len(list), len(defaults))
+	if len(list) != len(defaults)+1 {
+		t.Fatalf("ListModelPrices() len = %d, want %d", len(list), len(defaults)+1)
 	}
 
-	custom := pricing.ModelPriceEntry{Model: "custom", Input: "0.10", Output: "0.20"}
+	custom := pricing.ModelPriceEntry{Model: "custom", Input: "0.10", CachedInput: "0.01", Output: "0.20"}
 	if err := db.UpsertModelPrice(custom); err != nil {
 		t.Fatalf("UpsertModelPrice() error = %v", err)
+	}
+	list, err = db.ListModelPrices()
+	if err != nil {
+		t.Fatalf("ListModelPrices() after custom error = %v", err)
+	}
+	var found bool
+	for _, entry := range list {
+		if entry.Model == "custom" {
+			found = true
+			if entry.CachedInput != "0.01" {
+				t.Fatalf("CachedInput = %q, want 0.01", entry.CachedInput)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("custom model not found")
 	}
 	if err := db.DeleteModelPrice("custom"); err != nil {
 		t.Fatalf("DeleteModelPrice() error = %v", err)

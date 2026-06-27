@@ -31,13 +31,6 @@ func (d *DB) SetSetting(key, value string) error {
 }
 
 func (d *DB) BootstrapDefaultPrices(entries []pricing.ModelPriceEntry) error {
-	var count int
-	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM model_prices`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
@@ -45,8 +38,10 @@ func (d *DB) BootstrapDefaultPrices(entries []pricing.ModelPriceEntry) error {
 	defer tx.Rollback()
 	for _, entry := range entries {
 		if _, err := tx.Exec(
-			`INSERT INTO model_prices(model, input, output, is_default) VALUES(?, ?, ?, ?)`,
-			entry.Model, entry.Input, entry.Output, boolToInt(entry.IsDefault),
+			`INSERT INTO model_prices(model, input, output, cached_input, is_default)
+			 VALUES(?, ?, ?, ?, ?)
+			 ON CONFLICT(model) DO NOTHING`,
+			entry.Model, entry.Input, entry.Output, entry.CachedInput, boolToInt(entry.IsDefault),
 		); err != nil {
 			return err
 		}
@@ -55,7 +50,7 @@ func (d *DB) BootstrapDefaultPrices(entries []pricing.ModelPriceEntry) error {
 }
 
 func (d *DB) ListModelPrices() ([]pricing.ModelPriceEntry, error) {
-	rows, err := d.sql.Query(`SELECT model, input, output, is_default FROM model_prices ORDER BY model ASC`)
+	rows, err := d.sql.Query(`SELECT model, input, output, cached_input, is_default FROM model_prices ORDER BY model ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +59,7 @@ func (d *DB) ListModelPrices() ([]pricing.ModelPriceEntry, error) {
 	for rows.Next() {
 		var entry pricing.ModelPriceEntry
 		var isDefault int
-		if err := rows.Scan(&entry.Model, &entry.Input, &entry.Output, &isDefault); err != nil {
+		if err := rows.Scan(&entry.Model, &entry.Input, &entry.Output, &entry.CachedInput, &isDefault); err != nil {
 			return nil, err
 		}
 		entry.IsDefault = isDefault != 0
@@ -78,14 +73,15 @@ func (d *DB) UpsertModelPrice(entry pricing.ModelPriceEntry) error {
 		return fmt.Errorf("model is required")
 	}
 	_, err := d.sql.Exec(
-		`INSERT INTO model_prices(model, input, output, is_default, updated_at)
-		 VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
+		`INSERT INTO model_prices(model, input, output, cached_input, is_default, updated_at)
+		 VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(model) DO UPDATE SET
 		   input = excluded.input,
 		   output = excluded.output,
+		   cached_input = excluded.cached_input,
 		   is_default = excluded.is_default,
 		   updated_at = CURRENT_TIMESTAMP`,
-		entry.Model, entry.Input, entry.Output, boolToInt(entry.IsDefault),
+		entry.Model, entry.Input, entry.Output, entry.CachedInput, boolToInt(entry.IsDefault),
 	)
 	return err
 }
@@ -106,8 +102,8 @@ func (d *DB) ReplaceModelPrices(entries []pricing.ModelPriceEntry) error {
 	}
 	for _, entry := range entries {
 		if _, err := tx.Exec(
-			`INSERT INTO model_prices(model, input, output, is_default) VALUES(?, ?, ?, ?)`,
-			entry.Model, entry.Input, entry.Output, boolToInt(entry.IsDefault),
+			`INSERT INTO model_prices(model, input, output, cached_input, is_default) VALUES(?, ?, ?, ?, ?)`,
+			entry.Model, entry.Input, entry.Output, entry.CachedInput, boolToInt(entry.IsDefault),
 		); err != nil {
 			return err
 		}

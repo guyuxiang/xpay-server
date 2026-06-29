@@ -23,7 +23,17 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); }
     button, input { font: inherit; }
-    .layout { display: grid; min-height: 100vh; grid-template-columns: 232px minmax(0, 1fr); }
+    .layout { display: none; min-height: 100vh; grid-template-columns: 232px minmax(0, 1fr); }
+    body.authed .layout { display: grid; }
+    body.authed .login-screen { display: none; }
+    .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, rgba(20, 184, 166, .16), transparent 34%), radial-gradient(circle at bottom right, rgba(124, 58, 237, .14), transparent 34%), var(--bg); }
+    .login-card { width: min(100%, 420px); padding: 28px; }
+    .login-brand { display: flex; align-items: center; gap: 10px; font-weight: 750; margin-bottom: 22px; }
+    .login-title { font-size: 22px; margin: 0; }
+    .login-sub { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 20px; }
+    .login-error { min-height: 20px; color: var(--danger); font-size: 13px; margin: 10px 0 0; }
+    .login-actions { margin-top: 18px; display: grid; gap: 10px; }
+    .login-actions .btn { width: 100%; justify-content: center; }
     aside { border-right: 1px solid var(--line); background: #111827; color: #e5e7eb; padding: 18px 14px; position: sticky; top: 0; height: 100vh; }
     .brand { display: flex; align-items: center; gap: 10px; padding: 8px 10px 18px; font-weight: 700; }
     .mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #14b8a6, #8b5cf6); display: grid; place-items: center; color: white; font-size: 15px; }
@@ -83,6 +93,20 @@
   </style>
 </head>
 <body>
+  <div class="login-screen" id="loginScreen">
+    <form class="card login-card" id="loginForm" autocomplete="on">
+      <div class="login-brand"><div class="mark">₮</div><div>PayAPI x402</div></div>
+      <h1 class="login-title">登录运营控制台</h1>
+      <p class="login-sub">请输入管理员密码。验证通过后会进入 admin 页面，并在本浏览器中保存登录状态。</p>
+      <label>管理员密码
+        <input id="adminTokenInput" type="password" autocomplete="current-password" placeholder="请输入 ADMIN_TOKEN" autofocus>
+      </label>
+      <div class="login-actions">
+        <button class="btn primary" id="loginBtn" type="submit">进入控制台</button>
+      </div>
+      <div class="login-error" id="loginError" role="alert"></div>
+    </form>
+  </div>
   <div class="layout">
     <aside>
       <div class="brand"><div class="mark">₮</div><div>PayAPI x402</div></div>
@@ -159,6 +183,17 @@
     const state = { data: null, token: localStorage.getItem('adminToken') || '' }
     const $ = (id) => document.getElementById(id)
     const headers = () => state.token ? { 'X-Admin-Token': state.token } : {}
+    const setLoginError = (message = '') => { $('loginError').textContent = message }
+    const showLogin = (message = '') => {
+      document.body.classList.remove('authed')
+      $('adminTokenInput').value = state.token
+      setLoginError(message)
+      setTimeout(() => $('adminTokenInput').focus(), 0)
+    }
+    const showAdmin = () => {
+      document.body.classList.add('authed')
+      setLoginError('')
+    }
 
     function toast(message) {
       const el = $('toast')
@@ -173,14 +208,13 @@
       return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
     }
     async function request(path, options = {}) {
-      const res = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } })
+      const { __authMessage = '密码错误或登录已过期，请重新输入。', ...fetchOptions } = options
+      const res = await fetch(path, { ...fetchOptions, headers: { ...headers(), ...(fetchOptions.headers || {}) } })
       if (res.status === 401) {
-        const token = prompt('Admin Token')
-        if (token) {
-          state.token = token
-          localStorage.setItem('adminToken', token)
-          return request(path, options)
-        }
+        state.token = ''
+        localStorage.removeItem('adminToken')
+        showLogin(__authMessage)
+        throw new Error(__authMessage || 'admin token required')
       }
       if (!res.ok) {
         let msg = res.statusText
@@ -189,9 +223,15 @@
       }
       return res.json()
     }
-    async function load() {
-      state.data = await request('/admin/api/overview')
+    async function load(authFailureMessage) {
+      state.data = await request('/admin/api/overview', { __authMessage: authFailureMessage })
       render()
+      showAdmin()
+    }
+    async function login(token) {
+      state.token = token.trim()
+      localStorage.setItem('adminToken', state.token)
+      await load()
     }
     function render() {
       const { summary, recent, prices, config } = state.data
@@ -251,6 +291,23 @@
       toast('价格已保存')
       await load()
     }
+    $('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const token = $('adminTokenInput').value.trim()
+      if (!token) {
+        setLoginError('请输入管理员密码。')
+        return
+      }
+      $('loginBtn').disabled = true
+      setLoginError('正在验证...')
+      try {
+        await login(token)
+      } catch (err) {
+        if (!document.body.classList.contains('authed')) setLoginError(err.message || String(err))
+      } finally {
+        $('loginBtn').disabled = false
+      }
+    })
     document.addEventListener('click', async (event) => {
       const target = event.target
       try {
@@ -295,7 +352,15 @@
         toast(err.message || String(err))
       }
     })
-    load().catch(err => toast(err.message || String(err)))
+    if (state.token) {
+      load().catch(err => {
+        if (document.body.classList.contains('authed')) toast(err.message || String(err))
+      })
+    } else {
+      load('').catch(err => {
+        if (err.message !== 'admin token required') toast(err.message || String(err))
+      })
+    }
   </script>
 </body>
 </html>

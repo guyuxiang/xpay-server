@@ -95,3 +95,16 @@ func TestLoadValidSolanaConfig(t *testing.T) {
 		t.Fatalf("RPCURL = %q", cfg.RPCURL)
 	}
 }
+
+func TestLoadNormalizesBaseURL(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("BASE_URL", "https://www.openshort.cloud/payapi/")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.BaseURL != "/payapi" {
+		t.Fatalf("BaseURL = %q, want /payapi", cfg.BaseURL)
+	}
+}

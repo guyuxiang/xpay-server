@@ -68,6 +68,7 @@ cp .env.example .env
 | 变量 | 必填 | 示例 | 说明 |
 | --- | --- | --- | --- |
 | `PORT` | 否 | `3402` | HTTP 服务端口 |
+| `BASE_URL` | 否 | `/payapi` | URL 路径前缀；如果通过 `https://www.openshort.cloud/payapi` 访问服务，请设置为 `/payapi` |
 | `UPSTREAM_URL` | 是 | `https://your-new-api.example.com` | 上游 OpenAI 兼容服务地址，不要带末尾 `/` |
 | `UPSTREAM_TOKEN` | 是 | `sk-...` | 服务端访问上游模型服务的系统 token |
 | `PAYMENT_CHAIN` | 否 | `evm` | 支付链类型：`evm` 或 `solana` |
@@ -113,6 +114,12 @@ curl http://127.0.0.1:3402/health
 
 ```text
 http://127.0.0.1:3402/admin
+```
+
+如果服务部署在路径前缀下，例如 `BASE_URL=/payapi`，则管理后台地址为：
+
+```text
+https://www.openshort.cloud/payapi/admin
 ```
 
 如果设置了 `ADMIN_TOKEN`，页面调用 `/admin/api/*` 时会要求输入 token。API 也支持：

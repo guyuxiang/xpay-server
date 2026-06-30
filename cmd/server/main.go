@@ -84,18 +84,20 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
 
+	base := r.Group(cfg.BaseURL)
+
 	// x402-gated LLM endpoints
-	r.POST("/v1/chat/completions", relay.Handle)
-	r.POST("/v1/responses", relay.Handle)
-	r.POST("/v1/messages", relay.Handle)
-	r.POST("/v1/completions", relay.Handle)
+	base.POST("/v1/chat/completions", relay.Handle)
+	base.POST("/v1/responses", relay.Handle)
+	base.POST("/v1/messages", relay.Handle)
+	base.POST("/v1/completions", relay.Handle)
 
 	// Info endpoints (no auth)
-	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
-	r.GET("/v1/info/address", info.Address)
-	r.GET("/v1/info/balance", info.Balance)
-	r.GET("/admin", admin.Page)
-	adminAPI := r.Group("/admin/api", handler.AdminAuth(cfg.AdminToken))
+	base.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	base.GET("/v1/info/address", info.Address)
+	base.GET("/v1/info/balance", info.Balance)
+	base.GET("/admin", admin.Page)
+	adminAPI := base.Group("/admin/api", handler.AdminAuth(cfg.AdminToken))
 	adminAPI.GET("/overview", admin.Overview)
 	adminAPI.PUT("/settings", admin.SaveSettings)
 	adminAPI.POST("/prices", admin.SavePrice)
@@ -107,6 +109,7 @@ func main() {
 		"addr", addr,
 		"upstream", cfg.UpstreamURL,
 		"network", cfg.Network,
+		"baseURL", cfg.BaseURL,
 		"payTo", cfg.PayToAddress,
 		"dryRun", cfg.DryRun,
 	)

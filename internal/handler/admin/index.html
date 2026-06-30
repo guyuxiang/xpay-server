@@ -181,6 +181,11 @@
   <div id="toast" class="toast"></div>
   <script>
     const state = { data: null, token: localStorage.getItem('adminToken') || '' }
+    const baseURL = (() => {
+      const path = window.location.pathname.replace(/\/+$/, '')
+      return path.endsWith('/admin') ? path.slice(0, -'/admin'.length) : ''
+    })()
+    const apiPath = (path) => baseURL + path
     const $ = (id) => document.getElementById(id)
     const headers = () => state.token ? { 'X-Admin-Token': state.token } : {}
     const setLoginError = (message = '') => { $('loginError').textContent = message }
@@ -209,7 +214,7 @@
     }
     async function request(path, options = {}) {
       const { __authMessage = '密码错误或登录已过期，请重新输入。', ...fetchOptions } = options
-      const res = await fetch(path, { ...fetchOptions, headers: { ...headers(), ...(fetchOptions.headers || {}) } })
+      const res = await fetch(apiPath(path), { ...fetchOptions, headers: { ...headers(), ...(fetchOptions.headers || {}) } })
       if (res.status === 401) {
         state.token = ''
         localStorage.removeItem('adminToken')

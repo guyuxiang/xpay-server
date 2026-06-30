@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 type Config struct {
 	Port                string
 	UpstreamURL         string
+	BaseURL             string
 	UpstreamToken       string
 	PaymentChain        string // "evm" or "solana"
 	PayToAddress        string
@@ -125,6 +127,7 @@ func Load() (*Config, error) {
 	c := &Config{
 		Port:                envStr("PORT", "3402"),
 		UpstreamURL:         strings.TrimRight(envStr("UPSTREAM_URL", ""), "/"),
+		BaseURL:             normalizeBaseURL(envStr("BASE_URL", "")),
 		UpstreamToken:       envStr("UPSTREAM_TOKEN", ""),
 		PaymentChain:        paymentChain,
 		PayToAddress:        envStr("PAY_TO_ADDRESS", ""),
@@ -221,6 +224,18 @@ func Load() (*Config, error) {
 		}
 	}
 	return c, nil
+}
+
+func normalizeBaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "/" {
+		return ""
+	}
+	if u, err := url.Parse(raw); err == nil && u.IsAbs() {
+		raw = u.EscapedPath()
+	}
+	raw = "/" + strings.Trim(raw, "/")
+	return strings.TrimRight(raw, "/")
 }
 
 func paymentNetwork(paymentChain string, chainID int64, solanaCluster string) string {

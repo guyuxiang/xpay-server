@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -116,5 +117,18 @@ func TestModelPricesRoundTrip(t *testing.T) {
 	}
 	if err := db.DeleteModelPrice("custom"); err != nil {
 		t.Fatalf("DeleteModelPrice() error = %v", err)
+	}
+}
+
+func TestOpenCreatesParentDirectory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "nested", "data", "xpay.db")
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("database file was not created: %v", err)
 	}
 }

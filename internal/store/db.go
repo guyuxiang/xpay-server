@@ -3,6 +3,9 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	_ "github.com/glebarez/sqlite"
@@ -15,15 +18,51 @@ type DB struct {
 
 // Open opens (or creates) the SQLite database at path.
 func Open(path string) (*DB, error) {
+	if err := ensureDBDir(path); err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1) // SQLite is single-writer
 	if err := migrate(db); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &DB{sql: db}, nil
+}
+
+func ensureDBDir(path string) error {
+	dir := dbDir(path)
+	if dir == "" || dir == "." {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create sqlite database directory %q: %w", dir, err)
+	}
+	return nil
+}
+
+func dbDir(path string) string {
+	if path == "" || path == ":memory:" {
+		return ""
+	}
+	if strings.HasPrefix(path, "file:") {
+		u, err := url.Parse(path)
+		if err != nil {
+			return ""
+		}
+		if strings.Contains(u.RawQuery, "mode=memory") || u.Opaque == ":memory:" || u.Path == ":memory:" {
+			return ""
+		}
+		if u.Opaque != "" {
+			return filepath.Dir(u.Opaque)
+		}
+		return filepath.Dir(u.Path)
+	}
+	return filepath.Dir(path)
 }
 
 func migrate(db *sql.DB) error {
